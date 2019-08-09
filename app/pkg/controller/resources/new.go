@@ -1,9 +1,13 @@
 package resources
 
 import (
-	appv1 "github.com/lflxp/AppService/app/pkg/apis/app/v1"
 	v1 "github.com/lflxp/AppService/app/pkg/apis/app/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	appv1 "github.com/cnych/opdemo/pkg/apis/app/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func NewDeploy(app *appv1.AppService) *appsv1.Deployment {

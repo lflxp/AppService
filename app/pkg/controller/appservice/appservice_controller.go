@@ -7,6 +7,7 @@ import (
 
 	appv1 "github.com/lflxp/AppService/app/pkg/apis/app/v1"
 	"github.com/lflxp/AppService/app/pkg/controller/resources"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
