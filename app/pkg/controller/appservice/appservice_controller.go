@@ -2,16 +2,17 @@ package appservice
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 
 	appv1 "github.com/lflxp/AppService/app/pkg/apis/app/v1"
+	"github.com/lflxp/AppService/app/pkg/controller/resources"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -83,6 +84,51 @@ type ReconcileAppService struct {
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
 func (r *ReconcileAppService) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+	// reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
+	// reqLogger.Info("Reconciling AppService")
+
+	// // Fetch the AppService instance
+	// instance := &appv1.AppService{}
+	// err := r.client.Get(context.TODO(), request.NamespacedName, instance)
+	// if err != nil {
+	// 	if errors.IsNotFound(err) {
+	// 		// Request object not found, could have been deleted after reconcile request.
+	// 		// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
+	// 		// Return and don't requeue
+	// 		return reconcile.Result{}, nil
+	// 	}
+	// 	// Error reading the object - requeue the request.
+	// 	return reconcile.Result{}, err
+	// }
+
+	// // Define a new Pod object
+	// pod := newPodForCR(instance)
+
+	// // Set AppService instance as the owner and controller
+	// if err := controllerutil.SetControllerReference(instance, pod, r.scheme); err != nil {
+	// 	return reconcile.Result{}, err
+	// }
+
+	// // Check if this Pod already exists
+	// found := &corev1.Pod{}
+	// err = r.client.Get(context.TODO(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, found)
+	// if err != nil && errors.IsNotFound(err) {
+	// 	reqLogger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
+	// 	err = r.client.Create(context.TODO(), pod)
+	// 	if err != nil {
+	// 		return reconcile.Result{}, err
+	// 	}
+
+	// 	// Pod created successfully - don't requeue
+	// 	return reconcile.Result{}, nil
+	// } else if err != nil {
+	// 	return reconcile.Result{}, err
+	// }
+
+	// // Pod already exists - don't requeue
+	// reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
+	// return reconcile.Result{}, nil
+
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling AppService")
 
@@ -100,32 +146,72 @@ func (r *ReconcileAppService) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, err
 	}
 
-	// Define a new Pod object
-	pod := newPodForCR(instance)
-
-	// Set AppService instance as the owner and controller
-	if err := controllerutil.SetControllerReference(instance, pod, r.scheme); err != nil {
+	if instance.DeletionTimestamp != nil {
 		return reconcile.Result{}, err
 	}
 
-	// Check if this Pod already exists
-	found := &corev1.Pod{}
-	err = r.client.Get(context.TODO(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
-		err = r.client.Create(context.TODO(), pod)
-		if err != nil {
+	// 如果不存在，则创建关联资源
+	// 如果存在，判断是否需要更新
+	//   如果需要更新，则直接更新
+	//   如果不需要更新，则正常返回
+
+	deploy := &appsv1.Deployment{}
+	if err := r.client.Get(context.TODO(), request.NamespacedName, deploy); err != nil && errors.IsNotFound(err) {
+		// 创建关联资源
+		// 1. 创建 Deploy
+		deploy := resources.NewDeploy(instance)
+		if err := r.client.Create(context.TODO(), deploy); err != nil {
+			return reconcile.Result{}, err
+		}
+		// 2. 创建 Service
+		service := resources.NewService(instance)
+		if err := r.client.Create(context.TODO(), service); err != nil {
+			return reconcile.Result{}, err
+		}
+		// 3. 关联 Annotations
+		data, _ := json.Marshal(instance.Spec)
+		if instance.Annotations != nil {
+			instance.Annotations["spec"] = string(data)
+		} else {
+			instance.Annotations = map[string]string{"spec": string(data)}
+		}
+
+		if err := r.client.Update(context.TODO(), instance); err != nil {
+			return reconcile.Result{}, nil
+		}
+		return reconcile.Result{}, nil
+	}
+
+	oldspec := appv1.AppServiceSpec{}
+	if err := json.Unmarshal([]byte(instance.Annotations["spec"]), oldspec); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if !reflect.DeepEqual(instance.Spec, oldspec) {
+		// 更新关联资源
+		newDeploy := resources.NewDeploy(instance)
+		oldDeploy := &appsv1.Deployment{}
+		if err := r.client.Get(context.TODO(), request.NamespacedName, oldDeploy); err != nil {
+			return reconcile.Result{}, err
+		}
+		oldDeploy.Spec = newDeploy.Spec
+		if err := r.client.Update(context.TODO(), oldDeploy); err != nil {
 			return reconcile.Result{}, err
 		}
 
-		// Pod created successfully - don't requeue
+		newService := resources.NewService(instance)
+		oldService := &corev1.Service{}
+		if err := r.client.Get(context.TODO(), request.NamespacedName, oldService); err != nil {
+			return reconcile.Result{}, err
+		}
+		oldService.Spec = newService.Spec
+		if err := r.client.Update(context.TODO(), oldService); err != nil {
+			return reconcile.Result{}, err
+		}
+
 		return reconcile.Result{}, nil
-	} else if err != nil {
-		return reconcile.Result{}, err
 	}
 
-	// Pod already exists - don't requeue
-	reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
 	return reconcile.Result{}, nil
 }
 
