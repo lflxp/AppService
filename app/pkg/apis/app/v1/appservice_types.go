@@ -1,6 +1,10 @@
 package v1
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+
+	// appv1 "github.com/cnych/opdemo/pkg/apis/app/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -13,6 +17,11 @@ type AppServiceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
+	Size      *int32                      `json:"size"`
+	Image     string                      `json:"image"`
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	Envs      []corev1.EnvVar             `json:"envs,omitempty"`
+	Ports     []corev1.ServicePort        `json:"ports,omitempty"`
 }
 
 // AppServiceStatus defines the observed state of AppService
@@ -21,6 +30,7 @@ type AppServiceStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
+	appsv1.DeploymentStatus `json:",inline"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
